@@ -1,0 +1,673 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Boston Public Library — Building in Words</title>
+
+<!-- =================================================================
+     FONTS
+     Oswald  = the condensed words that build the stone, glass and shadow
+     Cinzel  = the carved Roman-style inscriptions
+     ================================================================= -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400..900&family=Oswald:wght@200..700&display=swap">
+
+<!-- =================================================================
+     PAGE STYLE
+     On screen: the artwork is centred and scales to the window.
+     In print: one 7 × 7 inch page, no margins.
+     ================================================================= -->
+<style>
+  html, body { margin: 0; background: #e9e4dc; }
+  main { min-height: 100vh; display: grid; place-items: center; padding: 24px; box-sizing: border-box; }
+
+  #art { width: min(92vmin, 1008px); aspect-ratio: 1; background: #F3EDE4;
+         box-shadow: 0 10px 40px rgba(43, 30, 25, .25); }
+  #art svg { width: 100%; height: 100%; display: block; }
+
+  @page { size: 7in 7in; margin: 0; }
+  @media print {
+    html, body { background: none; }
+    main { padding: 0; min-height: 0; display: block; }
+    #art { width: 7in; height: 7in; box-shadow: none; }
+  }
+</style>
+</head>
+
+<body>
+<main>
+  <!-- The building is drawn into this box by the script below -->
+  <div id="art"></div>
+</main>
+
+<script>
+/* #####################################################################
+   1. SETTINGS — edit freely, then reload the page
+   ##################################################################### */
+
+// Random seed: same number = same arrangement of words every time.
+const SEED = 11;
+
+// Drawing size in units (672 = 7 inches at 96 units per inch).
+const W = 672, H = 672;
+
+// Optional surroundings (off = just the building).
+const SHOW_SKY   = false;   // pale-blue sky strip above the roof
+const SHOW_PLAZA = false;   // paving in front of the steps
+
+/* ---------- Words: which words build which part of the building ---------- */
+const WORDS = {
+  all:   ["COMMUNITY", "BELONGING", "LISTEN", "LEARN", "CARE", "CREATE", "JUSTICE",
+          "EQUITY", "WELCOME", "OPEN", "MAKE ROOM", "MANY VOICES", "SHARED FUTURE",
+          "WE BUILD TOGETHER"],
+  stone: ["LEARN", "LISTEN", "CARE", "CREATE", "MANY VOICES", "COMMUNITY"],   // light granite
+  dark:  ["JUSTICE", "EQUITY", "COMMUNITY", "BELONGING", "LISTEN"],           // shadows & outlines
+  glass: ["WELCOME", "OPEN", "MAKE ROOM", "BELONGING"],                       // doors & glow
+  roof:  ["SHARED FUTURE", "CREATE", "CARE"],                                 // red tile roof
+  arch:  ["COMMUNITY", "JUSTICE", "EQUITY", "BELONGING"],                     // red arch outlines
+  steps: [["LISTEN", "LEARN", "CARE", "CREATE"],   // top step
+          ["MANY VOICES"],
+          ["MAKE ROOM"],
+          ["SHARED FUTURE"],
+          ["WE BUILD TOGETHER"]],                  // bottom step
+};
+
+/* ---------- Carved inscriptions (real text on the building) ---------- */
+const INSCRIPTION = "THE PUBLIC LIBRARY OF THE CITY OF BOSTON · BUILT BY THE PEOPLE AND DEDICATED TO THE ADVANCEMENT OF LEARNING";
+const OVER_DOOR   = "FREE TO ALL";
+
+/* ---------- Quotes carved vertically into the stone ---------- */
+const QUOTES = {
+  mlk1:     ["INJUSTICE ANYWHERE IS A THREAT TO JUSTICE EVERYWHERE", "MARTIN LUTHER KING JR."],
+  mlk2:     ["THE TIME IS ALWAYS RIGHT TO DO WHAT IS RIGHT", "MARTIN LUTHER KING JR."],
+  mlk3:     ["WE MUST LEARN TO LIVE TOGETHER AS BROTHERS OR PERISH TOGETHER AS FOOLS", "MARTIN LUTHER KING JR."],
+  hamer:    ["NOBODY’S FREE UNTIL EVERYBODY’S FREE", "FANNIE LOU HAMER"],
+  mandela:  ["EDUCATION IS THE MOST POWERFUL WEAPON WHICH YOU CAN USE TO CHANGE THE WORLD", "NELSON MANDELA"],
+  malala:   ["ONE CHILD, ONE TEACHER, ONE BOOK, ONE PEN CAN CHANGE THE WORLD", "MALALA YOUSAFZAI"],
+  lewis:    ["GET IN GOOD TROUBLE, NECESSARY TROUBLE", "JOHN LEWIS"],
+  chisholm: ["UNBOUGHT AND UNBOSSED", "SHIRLEY CHISHOLM"],
+  huerta:   ["SÍ, SE PUEDE", "DOLORES HUERTA"],
+  carnegie: ["THERE IS NOT SUCH A CRADLE OF DEMOCRACY UPON THE EARTH AS THE FREE PUBLIC LIBRARY", "ANDREW CARNEGIE"],
+};
+// Where each quote sits (use the keys above).
+const QUOTE_SPOTS = {
+  upper: ["hamer", "lewis", "chisholm", "huerta"],   // between the upper windows (left → right)
+  left:  ["mandela", "mlk3", "carnegie"],            // stone left of the doorways
+  right: ["malala", "mlk1", "mlk2"],                 // stone right of the doorways
+  piers: ["mlk1", "hamer"],                          // narrow piers between doorways
+};
+
+/* ---------- Colours ---------- */
+const C = {
+  // the five core colours
+  brown:  "#4B3831",  red:    "#CA4213",  orange: "#F98C45",
+  gray:   "#CBCBCB",  blue:   "#C5E4E7",
+  // extra shades used for light and shadow
+  deep:      "#2B1E19",  // darkest shadow
+  midBrown:  "#7A5A4B",  // soft shadow
+  rust:      "#9E300C",  // carved red letters, names
+  amber:     "#FFC08F",  // brightest door glow
+  warmGray:  "#A39A93",  // stone in shade
+  lightGray: "#E2DED9",  // stone in light
+  deepBlue:  "#86B3BA",  // glass in shade
+  navy:      "#3F5963",  // window reveal shadow
+  highlight: "#FFFDF8",  // lit edges
+  paper:     "#F3EDE4",  // background
+};
+
+/* ---------- Layout (all in drawing units, y grows downward) ---------- */
+const L = {
+  roof:    [22, 44],      // top → bottom of the tile roof
+  upper:   [68, 204],     // upper storey (arched windows)
+  ground:  [236, 528],    // ground storey (doorways)
+  steps:   [528, 618],    // five granite steps
+  plaza:   [618, 672],
+
+  bays:     [16, 176, 336, 496, 656],  // centre of each window column
+  doorways: [176, 336, 496],           // centre of each entrance arch
+
+  archOpen: 53,  archRing: 67,  archSpring: 340,  // entrance arch radii + where the curve starts
+  doorR: 34,     doorSpring: 416,                 // glass door arch
+  winR: 38,      winSpring: 122, winBottom: 196,  // upper windows
+  lanterns: [256, 416],                           // x of the two lanterns
+};
+
+
+/* #####################################################################
+   2. HELPERS — the small tools everything else is built from
+   ##################################################################### */
+
+/* ---------- Seeded random numbers (repeatable) ---------- */
+let rand;
+function seededRandom(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const between = (a, b) => a + rand() * (b - a);
+
+/* ---------- Output buffers ---------- */
+let defs = [];   // clip paths, masks, gradients
+let body = [];   // everything visible, in paint order (back → front)
+let uid  = 0;
+const newId = (prefix) => `${prefix}${++uid}`;
+const n1  = (v) => v.toFixed(1);
+const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+
+/* ---------- Measuring letters (for text that follows curves) ---------- */
+const measureCtx = document.createElement("canvas").getContext("2d");
+const widthCache = new Map();
+function letterWidth(ch, size, weight) {
+  const key = ch + "|" + weight;
+  if (!widthCache.has(key)) {
+    measureCtx.font = `${weight} 100px Oswald`;
+    widthCache.set(key, measureCtx.measureText(ch).width / 100);
+  }
+  return widthCache.get(key) * size;
+}
+const textWidth = (t, size, weight, spacing) =>
+  [...t].reduce((sum, ch) => sum + letterWidth(ch, size, weight) + spacing, 0);
+
+/* ---------- A run of words long enough to fill n characters ---------- */
+function wordRun(words, n, sep = " ") {
+  let i = Math.floor(rand() * words.length), s = "";
+  while (s.length < n) { s += words[i % words.length] + sep; i++; }
+  return s.trim();
+}
+
+/* ---------- Shapes ---------- */
+const rect = (x, y, w, h) => `<rect x="${n1(x)}" y="${n1(y)}" width="${n1(w)}" height="${n1(h)}"/>`;
+const path = (d) => `<path d="${d}"/>`;
+const WHOLE = `M0,0 H${W} V${H} H0 Z`;
+
+// Closed arch shape: straight sides, half-circle top.
+const arch = (cx, spring, r, bottom) =>
+  `M${n1(cx - r)},${n1(bottom)} L${n1(cx - r)},${n1(spring)} ` +
+  `A${n1(r)},${n1(r)} 0 0 1 ${n1(cx + r)},${n1(spring)} L${n1(cx + r)},${n1(bottom)} Z`;
+
+// Same arch as an open line (for text to travel along).
+const archLine = (cx, spring, r, bottom) =>
+  `M${n1(cx - r)},${n1(bottom)} L${n1(cx - r)},${n1(spring)} ` +
+  `A${n1(r)},${n1(r)} 0 0 1 ${n1(cx + r)},${n1(spring)} L${n1(cx + r)},${n1(bottom)}`;
+
+// A shape with holes cut out of it.
+const withHoles = (outer, ...holes) => path(outer + " " + holes.join(" "));
+
+// "Everything except this shape" — used to carve shadows.
+const outside = (d) => [withHoles(WHOLE, d), "evenodd"];
+
+/* ---------- Clip paths (keep words inside a shape) ---------- */
+function clipId(shapes, rule = "nonzero") {
+  const id = newId("c");
+  let s = Array.isArray(shapes) ? shapes.join("") : shapes;
+  if (rule === "evenodd") s = s.replace(/<(path|rect|polygon) /g, '<$1 clip-rule="evenodd" ');
+  defs.push(`<clipPath id="${id}">${s}</clipPath>`);
+  return id;
+}
+
+/* ---------- Fades (masks): make a layer of words fade in or out ---------- */
+function stopsToSvg(stops) {
+  return stops.map(([at, a]) => `<stop offset="${at}" stop-color="#fff" stop-opacity="${a}"/>`).join("");
+}
+// Straight fade across a box. stops = [[position 0–1, strength 0–1], ...]
+function fadeLinear(x, y, w, h, stops, vertical = true) {
+  const g = newId("g"), m = newId("m");
+  defs.push(`<linearGradient id="${g}" x1="0" y1="0" x2="${vertical ? 0 : 1}" y2="${vertical ? 1 : 0}">${stopsToSvg(stops)}</linearGradient>`);
+  defs.push(`<mask id="${m}" maskUnits="userSpaceOnUse" x="0" y="0" width="${W}" height="${H}"><rect x="${x}" y="${y}" width="${w}" height="${h}" fill="url(#${g})"/></mask>`);
+  return m;
+}
+// Round glow around a point.
+function fadeRadial(cx, cy, rx, ry, stops) {
+  const g = newId("g"), m = newId("m");
+  defs.push(`<radialGradient id="${g}" cx="0.5" cy="0.5" r="0.5">${stopsToSvg(stops)}</radialGradient>`);
+  defs.push(`<mask id="${m}" maskUnits="userSpaceOnUse" x="0" y="0" width="${W}" height="${H}"><rect x="${cx - rx}" y="${cy - ry}" width="${2 * rx}" height="${2 * ry}" fill="url(#${g})"/></mask>`);
+  return m;
+}
+
+/* ---------- WORD FILL: the core technique ----------
+   Fills a box with vertical columns of words, clipped to one or more shapes.
+     clips : [[shape, rule], ...]  — several = only where they all overlap
+     box   : [x0, y0, x1, y1]      — area to cover with columns
+     size  : letter size     gap : distance between columns
+   Options: weight, spacing, opacity (number or [min,max]), fade (mask id),
+            down (read top→bottom instead of bottom→top),
+            colorFn / opacityFn (vary per column by x)                       */
+function wordFill(clips, box, words, size, gap, color, opt = {}) {
+  const { weight = 500, spacing = 0.4, opacity = 1, fade, down = false, colorFn, opacityFn } = opt;
+  const [x0, y0, x1, y1] = box;
+  const cols = [];
+
+  for (let x = x0 + size * 0.75 + rand() * gap; x < x1 + size; x += gap) {
+    const shift = rand() * size * 8;                                   // stagger each column
+    const chars = Math.floor((y1 - y0 + shift) / (size * 0.42 + spacing)) + 12;
+    const col = colorFn ? colorFn(x) : color;
+    const op  = opacityFn ? opacityFn(x)
+              : Array.isArray(opacity) ? between(opacity[0], opacity[1]) : opacity;
+    const y   = down ? y0 - shift : y1 + shift;
+    const rot = down ? 90 : -90;
+    cols.push(`<text x="${n1(x)}" y="${n1(y)}" transform="rotate(${rot} ${n1(x)} ${n1(y)})" ` +
+              `fill="${col}" opacity="${op.toFixed(2)}">${esc(wordRun(words, chars))}</text>`);
+  }
+
+  let g = `<g font-family="Oswald" font-weight="${weight}" font-size="${size}" letter-spacing="${spacing}">${cols.join("")}</g>`;
+  for (const [shape, rule] of [...clips].reverse()) g = `<g clip-path="url(#${clipId(shape, rule)})">${g}</g>`;
+  if (fade) g = `<g mask="url(#${fade})">${g}</g>`;
+  body.push(g);
+}
+
+/* ---------- TEXT ON A LINE: letters placed one by one along a path ---------- */
+const probe = document.createElementNS("http://www.w3.org/2000/svg", "path");
+const probeSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+probeSvg.setAttribute("style", "position:absolute;width:0;height:0;overflow:hidden");
+probeSvg.appendChild(probe);
+document.body.appendChild(probeSvg);
+
+function textAlong(d, words, size, color, opt = {}) {
+  const { weight = 600, spacing = 0.6, start = 0, opacity = 1, chars = 220 } = opt;
+  probe.setAttribute("d", d);
+  const total = probe.getTotalLength();
+  const pointAt = (s) => {
+    const a = probe.getPointAtLength(Math.max(0, s - 0.3));
+    const b = probe.getPointAtLength(Math.min(total, s + 0.3));
+    const p = probe.getPointAtLength(s);
+    return [p.x, p.y, Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI];
+  };
+
+  const text = wordRun(words, chars, " · ");
+  const out = [];
+  for (let s = start, i = 0; ; i++) {
+    const ch = text[i % text.length];
+    const w = letterWidth(ch, size, weight) + spacing;
+    if (s + w > total) break;
+    if (ch !== " ") {
+      const [x, y, angle] = pointAt(s + w / 2);
+      const r = angle * Math.PI / 180;
+      const bx = x - Math.sin(r) * size * 0.36, by = y + Math.cos(r) * size * 0.36;  // centre letters on the line
+      out.push(`<text x="${n1(bx)}" y="${n1(by)}" transform="rotate(${angle.toFixed(0)} ${n1(bx)} ${n1(by)})">${esc(ch)}</text>`);
+    }
+    s += w;
+  }
+  body.push(`<g fill="${color}" font-family="Oswald" font-weight="${weight}" font-size="${size}" text-anchor="middle" opacity="${opacity}">${out.join("")}</g>`);
+}
+
+/* ---------- CARVED TEXT: a light copy offset behind a dark one ---------- */
+function carved(x, y, text, color, attrs) {
+  for (const [dx, dy, col] of [[0.7, 0.8, C.highlight], [0, 0, color]])
+    body.push(`<text x="${x + dx}" y="${y + dy}" text-anchor="middle" fill="${col}" ${attrs}>${esc(text)}</text>`);
+}
+
+
+/* #####################################################################
+   3. THE BUILDING — drawn back to front, one part per function
+      Light comes from the upper left, so shadows fall right and down.
+   ##################################################################### */
+
+/* ---------- Sky (optional) ---------- */
+function drawSky() {
+  const box = [0, 0, W, L.roof[0]], clip = [[rect(...box.slice(0, 2), W, L.roof[0]), "nonzero"]];
+  wordFill(clip, box, ["MANY VOICES", "SHARED FUTURE"], 4.6, 5.4, C.blue, { spacing: 1.2 });
+  wordFill(clip, box, ["SHARED FUTURE"], 4.0, 10.8, C.deepBlue,
+           { weight: 400, spacing: 1.2, down: true, fade: fadeLinear(0, 0, W, 22, [[0, 0], [1, 0.9]]) });
+}
+
+/* ---------- Red tile roof ---------- */
+function drawRoof() {
+  const clip = [[rect(0, 24, W, 20), "nonzero"]], box = [0, 24, W, 44];
+  wordFill(clip, box, WORDS.roof, 4.4, 4.2, C.red, { weight: 700, spacing: 0.3 });                 // tiles
+  wordFill(clip, box, ["SHARED FUTURE", "CREATE"], 3.6, 8.4, C.orange,                              // sunlit top
+           { weight: 600, spacing: 0.3, down: true, fade: fadeLinear(0, 24, W, 20, [[0, 1], [0.6, 0]]) });
+  wordFill(clip, box, ["CARE", "JUSTICE"], 3.6, 4.2, C.deep,                                        // shade at the eave
+           { weight: 700, spacing: 0.3, fade: fadeLinear(0, 24, W, 20, [[0.45, 0], [1, 0.85]]) });
+  wordFill([[rect(0, 21, W, 3), "nonzero"]], [0, 20, W, 24], WORDS.all, 2.4, 2.0, C.brown,          // ridge line
+           { weight: 700, spacing: 0 });
+}
+
+/* ---------- Cornice + dentil blocks ---------- */
+function drawCornice() {
+  wordFill([[rect(0, 44, W, 10), "nonzero"]], [0, 44, W, 54], WORDS.dark, 3.0, 2.4, C.brown, { weight: 700, spacing: 0 });
+  wordFill([[rect(0, 44, W, 3), "nonzero"]], [0, 44, W, 47], WORDS.dark, 2.6, 4.0, C.lightGray, { weight: 600, spacing: 0, opacity: 0.8 });
+
+  const blocks = [], blockShadows = [];
+  for (let x = 2; x < W; x += 11) {
+    blocks.push(rect(x, 55, 7, 6));
+    blockShadows.push(rect(x + 7, 55, 3, 7));
+  }
+  wordFill([[blockShadows, "nonzero"]], [0, 54, W, 62], ["CARE"], 2.4, 1.8, C.deep, { weight: 700, spacing: 0, opacity: 0.55 });
+  wordFill([[blocks, "nonzero"]], [0, 54, W, 62], ["CARE", "LISTEN", "LEARN"], 2.4, 1.9, C.brown, { weight: 700, spacing: 0 });
+  wordFill([[rect(0, 63, W, 4), "nonzero"]], [0, 62, W, 67], WORDS.all, 2.4, 2.0, C.midBrown, { weight: 600, spacing: 0 });
+}
+
+/* ---------- Upper storey: stone wall + arched windows ---------- */
+function drawUpperFloor() {
+  const { bays, winR, winSpring, winBottom } = L;
+  const [top, bottom] = L.upper;
+
+  // Stone wall with window openings cut out
+  const holes = bays.map((cx) => arch(cx, winSpring, winR + 7, winBottom + 4));
+  const wall = [withHoles(`M0,${top} H${W} V${bottom} H0 Z`, ...holes), "evenodd"];
+  const box = [0, top, W, bottom];
+  wordFill([wall], box, WORDS.stone, 5.0, 6.0, C.gray, { weight: 400, spacing: 0.8, opacity: [0.8, 1] });
+  wordFill([wall], box, ["LISTEN", "CARE", "LEARN"], 4.2, 6.0, C.warmGray,                          // texture, darker to the right
+           { weight: 300, spacing: 0.8, down: true, opacityFn: (x) => 0.15 + 0.35 * (x / W) });
+  wordFill([wall], [0, 66, W, 98], WORDS.dark, 3.6, 3.0, C.midBrown,                                 // shadow under the cornice
+           { weight: 600, spacing: 0.2, fade: fadeLinear(0, 66, W, 32, [[0, 0.85], [1, 0]]) });
+
+  for (const cx of bays) {
+    const glass = arch(cx, winSpring, winR, winBottom);
+    const frame = arch(cx, winSpring, winR + 7, winBottom + 4);
+    const box = [cx - winR - 8, winSpring - winR - 8, cx + winR + 8, winBottom + 4];
+    const gbox = [cx - winR, winSpring - winR, cx + winR, winBottom];
+
+    // Stone reveal around the glass, darker on the shaded side
+    wordFill([[path(frame + " " + glass), "evenodd"]], box, ["LEARN", "LISTEN"], 3.0, 2.6, C.warmGray, { weight: 600, spacing: 0 });
+    wordFill([[path(frame + " " + glass), "evenodd"], outside(arch(cx + 6, winSpring + 6, winR + 7, winBottom + 10))],
+             box, ["CARE"], 3.0, 2.6, C.deep, { weight: 700, spacing: 0, opacity: 0.7 });
+
+    // Glass, shading, reflection, shadow
+    wordFill([[path(glass), "nonzero"]], gbox, ["BELONGING", "LEARN", "MANY VOICES", "LISTEN"], 4.0, 3.6, C.blue, { weight: 600, spacing: 0.2 });
+    wordFill([[path(glass), "nonzero"]], gbox, ["LISTEN", "LEARN"], 3.4, 3.6, C.deepBlue,
+             { spacing: 0.2, down: true, fade: fadeLinear(gbox[0], gbox[1], 76, 80, [[0, 0.2], [1, 0.9]]) });
+    const streak = `<polygon points="${cx - 10},${winSpring - 40} ${cx + 4},${winSpring - 40} ${cx + 30},${winBottom - 26} ${cx + 16},${winBottom - 26}"/>`;
+    wordFill([[path(glass), "nonzero"], [streak, "nonzero"]], gbox, ["OPEN", "LEARN"], 3.4, 3.2, C.highlight, { weight: 600, spacing: 0.2, opacity: 0.9 });
+    wordFill([[path(glass), "nonzero"], outside(arch(cx + 9, winSpring + 8, winR, winBottom + 8))],
+             gbox, WORDS.dark, 3.4, 2.6, C.navy, { weight: 700, spacing: 0, opacity: 0.85 });
+
+    // Iron grille in the lower panel
+    const grille = [[rect(cx - winR, winBottom - 26, 2 * winR, 26), "nonzero"]];
+    const grilleBox = [cx - winR, winBottom - 26, cx + winR, winBottom];
+    wordFill(grille, grilleBox, ["CARE", "JUSTICE"], 3.0, 3.2, C.brown, { spacing: 0.2, opacity: 0.9 });
+    wordFill(grille, grilleBox, ["CARE"], 3.0, 6.4, C.orange, { spacing: 0.2, opacity: 0.35, down: true });
+
+    // Window bars and frame (text running along lines)
+    for (const dx of [-13, 13])
+      textAlong(`M${cx + dx},${winBottom} L${cx + dx},${n1(winSpring - Math.sqrt(winR ** 2 - dx ** 2))}`,
+                ["OPEN", "LEARN"], 2.6, C.brown, { weight: 700, spacing: 0.2, chars: 60 });
+    textAlong(`M${cx - winR + 1},${winSpring + 18} L${cx + winR - 1},${winSpring + 18}`,
+              ["LISTEN", "LEARN"], 2.6, C.brown, { weight: 700, spacing: 0.2, chars: 60 });
+    textAlong(archLine(cx, winSpring, winR + 2.5, winBottom + 3), ["LEARN", "LISTEN", "COMMUNITY"],
+              4.0, C.brown, { weight: 700, spacing: 0.4, chars: 150 });
+
+    // Sill
+    wordFill([[rect(cx - winR - 9, winBottom + 4, 2 * winR + 18, 5), "nonzero"]],
+             [cx - winR - 9, winBottom + 4, cx + winR + 9, winBottom + 9], ["EQUITY", "CARE"], 2.4, 2.0, C.brown,
+             { weight: 700, spacing: 0 });
+  }
+}
+
+/* ---------- Inscription band between the storeys ---------- */
+function drawInscriptionBand() {
+  wordFill([[rect(0, 205, W, 4), "nonzero"]], [0, 204, W, 209], WORDS.all, 2.4, 2.0, C.brown, { weight: 700, spacing: 0 });
+  wordFill([[rect(0, 209, W, 22), "nonzero"]], [0, 209, W, 231], ["LEARN", "LISTEN"], 3.4, 4.6, C.gray, { weight: 400, spacing: 0.8, opacity: 0.75 });
+  wordFill([[rect(0, 209, W, 22), "nonzero"]], [0, 209, W, 231], WORDS.dark, 3.0, 2.6, C.midBrown,
+           { weight: 600, spacing: 0, fade: fadeLinear(0, 209, W, 10, [[0, 0.7], [1, 0]]) });
+  wordFill([[rect(0, 231, W, 4), "nonzero"]], [0, 230, W, 235], WORDS.all, 2.4, 2.0, C.brown, { weight: 700, spacing: 0 });
+
+  carved(336, 224.5, INSCRIPTION, C.deep,
+         `font-family="Cinzel" font-weight="700" font-size="8.1" letter-spacing="0.5" textLength="600" lengthAdjust="spacing"`);
+}
+
+/* ---------- Ground storey: stone wall, piers, lantern glow ---------- */
+let groundWall;  // reused by the doorways for their cast shadows
+function drawGroundFloor() {
+  const { doorways, archRing, archSpring, lanterns } = L;
+  const [top, bottom] = L.ground;
+
+  // Wall with the three doorways and two side windows cut out
+  const holes = [
+    ...doorways.map((cx) => arch(cx, archSpring, archRing, bottom)),
+    ...[16, 656].map((cx) => `M${cx - 30},372 H${cx + 30} V474 H${cx - 30} Z`),
+  ];
+  groundWall = [withHoles(`M0,${top} H${W} V${bottom} H0 Z`, ...holes), "evenodd"];
+  const box = [0, top, W, bottom];
+
+  wordFill([groundWall], box, WORDS.stone, 5.4, 6.4, C.gray, { weight: 400, spacing: 0.7, opacity: [0.8, 1] });
+  wordFill([groundWall], box, ["CARE", "CREATE", "LEARN"], 4.6, 12.8, C.warmGray,                  // crossing texture
+           { weight: 300, spacing: 0.9, down: true, opacityFn: (x) => 0.25 + 0.3 * Math.abs(Math.sin(x / 40)) });
+  wordFill([groundWall], [0, 235, W, 262], WORDS.dark, 3.6, 3.0, C.midBrown,                         // shadow under the band
+           { weight: 600, spacing: 0.2, fade: fadeLinear(0, 235, W, 27, [[0, 0.85], [1, 0]]) });
+  wordFill([groundWall], [0, 430, W, 528], WORDS.dark, 4.0, 4.4, C.midBrown,                         // darker toward the ground
+           { spacing: 0.3, fade: fadeLinear(0, 430, W, 98, [[0, 0], [1, 0.6]]) });
+
+  // Piers between doorways: lit left edge, shaded right edge
+  for (let k = 0; k < doorways.length - 1; k++) {
+    const a = doorways[k] + archRing, b = doorways[k + 1] - archRing;
+    wordFill([[rect(a, 262, 4, 266), "nonzero"]], [a, 262, a + 4, 528], ["CREATE"], 3.4, 2.6, C.highlight, { weight: 600, spacing: 0.3 });
+    wordFill([[rect(b - 6, 262, 6, 266), "nonzero"]], [b - 6, 262, b, 528], ["CARE"], 3.4, 2.4, C.midBrown, { weight: 600, spacing: 0.3, opacity: 0.6 });
+  }
+
+  // Warm lantern light on the wall
+  for (const x of lanterns)
+    wordFill([groundWall], [x - 40, archSpring - 52, x + 40, archSpring + 60], ["CARE", "WELCOME"], 4.2, 3.0, C.orange,
+             { weight: 600, fade: fadeRadial(x, archSpring + 4, 40, 56, [[0, 1], [0.45, 0.55], [1, 0]]) });
+
+  carved(336, 262, OVER_DOOR, C.rust, `font-family="Cinzel" font-weight="800" font-size="12.5" letter-spacing="3"`);
+}
+
+/* ---------- The three entrance doorways ---------- */
+function drawDoorways() {
+  const { doorways, archOpen, archRing, archSpring: S, doorR, doorSpring: DS } = L;
+  const bottom = L.ground[1];
+
+  for (const cx of doorways) {
+    const outer   = arch(cx, S, archRing, bottom);   // outside edge of the stone arch
+    const opening = arch(cx, S, archOpen, bottom);   // the open archway
+    const door    = arch(cx, DS, doorR, bottom);     // glass doors
+    const frame   = arch(cx, DS, doorR + 5, bottom); // door frame
+    const box = [cx - archRing - 8, S - archRing - 8, cx + archRing + 10, bottom];
+
+    /* Arch ring (stone band around the opening) */
+    wordFill([[path(arch(cx + 5, S + 5, archRing, bottom + 5)), "nonzero"], outside(outer), groundWall],
+             box, WORDS.dark, 3.2, 2.4, C.deep, { weight: 700, spacing: 0, opacity: 0.55 });            // cast shadow on wall
+    const ring = [path(outer + " " + opening), "evenodd"];
+    wordFill([ring], box, ["LEARN", "CARE"], 3.2, 3.4, C.gray, { weight: 400, spacing: 0.3 });
+    wordFill([ring, outside(arch(cx - 4, S - 4, archRing, bottom))], box, ["CARE"], 3.2, 2.6, C.midBrown,
+             { weight: 600, spacing: 0, opacity: 0.6 });                                                // shaded side
+    wordFill([ring, [path(arch(cx - 3, S - 3, archRing, bottom)), "nonzero"], outside(arch(cx + 2, S + 2, archRing, bottom))],
+             box, ["OPEN"], 3.2, 2.4, C.highlight, { weight: 700, spacing: 0 });                        // lit edge
+    textAlong(archLine(cx, S, archOpen + 6, bottom), WORDS.arch, 6.2, C.red, { weight: 700, spacing: 0.6, chars: 260 });
+    textAlong(archLine(cx, S, archRing - 4, bottom), ["JUSTICE", "EQUITY", "COMMUNITY"], 4.8, C.brown,
+              { weight: 500, spacing: 0.9, opacity: 0.8, chars: 260, start: 7 });
+
+    // Joints between the arch stones
+    for (let deg = 10; deg < 180; deg += 17) {
+      const t = deg * Math.PI / 180;
+      textAlong(`M${n1(cx - Math.cos(t) * (archOpen + 10))},${n1(S - Math.sin(t) * (archOpen + 10))} ` +
+                `L${n1(cx - Math.cos(t) * (archRing - 7))},${n1(S - Math.sin(t) * (archRing - 7))}`,
+                ["CARE"], 2.4, C.brown, { weight: 700, chars: 8, opacity: 0.6 });
+    }
+
+    // Keystone
+    const key = `<path d="M${cx - 7},${S - archRing - 3} L${cx + 7},${S - archRing - 3} L${cx + 4.5},${S - archOpen - 10} L${cx - 4.5},${S - archOpen - 10} Z"/>`;
+    body.push(key.replace("/>", ` fill="${C.paper}"/>`));
+    wordFill([[key, "nonzero"]], [cx - 8, S - archRing - 4, cx + 8, S - archOpen - 9], ["CREATE", "OPEN"], 2.4, 2.0, C.brown, { weight: 700, spacing: 0 });
+
+    /* Vestibule (the dark space inside the arch) */
+    const vbox = [cx - archOpen, S - archOpen, cx + archOpen, bottom];
+    const vest = [path(opening + " " + frame), "evenodd"];
+    wordFill([vest], vbox, WORDS.dark, 4.0, 3.4, C.brown, { weight: 700, spacing: 0, opacity: [0.9, 1] });
+    wordFill([vest], vbox, WORDS.dark, 3.4, 6.8, C.midBrown, { spacing: 0.2, down: true, opacity: 0.6 });
+    wordFill([vest, outside(arch(cx + 16, S + 22, archOpen, bottom + 40))], vbox, WORDS.dark, 3.6, 2.4, C.deep,
+             { weight: 800, spacing: 0, opacity: 0.95 });                                               // deep shadow, upper left
+    wordFill([vest], vbox, WORDS.glass, 3.6, 2.6, C.orange,
+             { weight: 600, spacing: 0.2, fade: fadeRadial(cx, bottom - 20, 70, 110, [[0, 1], [0.5, 0.7], [1, 0]]) });  // light spilling out
+    wordFill([vest], vbox, WORDS.glass, 3.2, 4.0, C.amber,
+             { weight: 600, spacing: 0.2, down: true, fade: fadeRadial(cx, bottom - 6, 52, 60, [[0, 1], [1, 0]]) });
+    textAlong(archLine(cx, DS, doorR + 2.5, bottom), ["WELCOME", "OPEN", "BELONGING"], 3.6, C.deep,
+              { weight: 700, spacing: 0.3, chars: 200 });
+
+    /* Glass doors: cool blue above, warm interior light below */
+    const dbox = [cx - doorR, DS - doorR, cx + doorR, bottom], dh = bottom - dbox[1];
+    const glass = [path(door), "nonzero"];
+    wordFill([glass], dbox, WORDS.glass, 3.6, 3.2, C.blue, { weight: 600, spacing: 0.2 });
+    wordFill([glass], dbox, WORDS.glass, 3.6, 3.2, C.orange,
+             { weight: 600, spacing: 0.2, down: true, fade: fadeLinear(dbox[0], dbox[1], 2 * doorR, dh, [[0.25, 0], [0.75, 0.9], [1, 1]]) });
+    wordFill([glass], dbox, ["WELCOME", "OPEN"], 3.0, 6.4, C.amber,
+             { spacing: 0.2, fade: fadeRadial(cx, bottom - 22, 30, 50, [[0, 1], [1, 0]]) });
+    wordFill([glass], dbox, ["MAKE ROOM", "BELONGING"], 3.0, 6.4, C.red,
+             { weight: 700, spacing: 0.2, down: true, opacity: 0.55, fade: fadeLinear(dbox[0], dbox[1], 2 * doorR, dh, [[0.6, 0], [1, 1]]) });
+    wordFill([glass, outside(arch(cx + 8, DS + 8, doorR, bottom + 20))], dbox, WORDS.dark, 3.2, 2.4, C.navy,
+             { weight: 700, spacing: 0, opacity: 0.8 });                                                // reveal shadow
+
+    // Door bars: transom, centre line, fan in the half-round window
+    textAlong(`M${cx - doorR},${DS} L${cx + doorR},${DS}`, ["OPEN"], 3.0, C.deep, { weight: 700, chars: 40 });
+    textAlong(`M${cx},${bottom} L${cx},${DS}`, ["WELCOME"], 2.8, C.deep, { weight: 700, chars: 60 });
+    for (const deg of [35, 90, 145]) {
+      const t = deg * Math.PI / 180;
+      textAlong(`M${cx},${DS} L${n1(cx - Math.cos(t) * doorR)},${n1(DS - Math.sin(t) * doorR)}`, ["OPEN"], 2.4, C.deep, { weight: 700, chars: 16 });
+    }
+  }
+}
+
+/* ---------- Side windows on the ground storey ---------- */
+function drawSideWindows() {
+  for (const cx of [16, 656]) {
+    const frame = `M${cx - 30},372 H${cx + 30} V474 H${cx - 30} Z`;
+    const glass = `M${cx - 26},376 H${cx + 26} V470 H${cx - 26} Z`;
+    const box = [cx - 30, 372, cx + 30, 474];
+    wordFill([[path(glass), "nonzero"]], box, ["LEARN", "LISTEN", "BELONGING"], 4.0, 3.6, C.blue, { weight: 600, spacing: 0.2 });
+    wordFill([[path(glass), "nonzero"], outside(`M${cx - 18},384 H${cx + 34} V478 H${cx - 18} Z`)], box, WORDS.dark, 3.2, 2.4, C.navy,
+             { weight: 700, spacing: 0, opacity: 0.8 });
+    wordFill([[path(frame + " " + glass), "evenodd"]], box, ["EQUITY", "CARE"], 2.6, 2.0, C.brown, { weight: 700, spacing: 0 });
+    textAlong(`M${cx},470 L${cx},376`, ["LEARN"], 2.6, C.brown, { weight: 700, chars: 50 });
+    textAlong(`M${cx - 26},420 L${cx + 26},420`, ["LEARN"], 2.6, C.brown, { weight: 700, chars: 30 });
+  }
+}
+
+/* ---------- Iron lanterns ---------- */
+function drawLanterns() {
+  const S = L.archSpring;
+  for (const x of L.lanterns) {
+    const shadow = `<path d="M${x - 4},${S - 3} L${x + 12},${S - 3} L${x + 9},${S + 21} L${x - 1},${S + 21} Z"/>`;
+    const cap    = `<path d="M${x - 9},${S - 8} L${x},${S - 17} L${x + 9},${S - 8} Z"/>`;
+    const glass  = `<path d="M${x - 8},${S - 7} L${x + 8},${S - 7} L${x + 5},${S + 16} L${x - 5},${S + 16} Z"/>`;
+    const base   = `<path d="M${x - 6},${S + 16} L${x + 6},${S + 16} L${x + 1.5},${S + 23} L${x - 1.5},${S + 23} Z"/>`;
+
+    wordFill([[shadow, "nonzero"]], [x - 5, S - 4, x + 13, S + 22], ["CARE"], 2.4, 1.8, C.deep, { weight: 700, spacing: 0, opacity: 0.35 });
+    textAlong(`M${x},${S - 28} L${x},${S - 10}`, ["CARE"], 3, C.brown, { weight: 700, chars: 12 });           // bracket
+    wordFill([[cap, "nonzero"]], [x - 9, S - 18, x + 9, S - 8], ["CARE"], 2.4, 1.8, C.brown, { weight: 700, spacing: 0 });
+    wordFill([[glass, "nonzero"]], [x - 8, S - 7, x + 8, S + 16], ["CARE", "WELCOME"], 2.6, 2.0, C.orange,
+             { weight: 700, spacing: 0, colorFn: () => (rand() > 0.6 ? C.amber : C.orange) });
+    textAlong(`M${x},${S + 16} L${x},${S - 7}`, ["CARE"], 2.2, C.brown, { weight: 700, chars: 12 });
+    wordFill([[base, "nonzero"]], [x - 6, S + 16, x + 6, S + 23], ["CARE"], 2.2, 1.8, C.brown, { weight: 700, spacing: 0 });
+  }
+}
+
+/* ---------- Five granite steps ---------- */
+function drawSteps() {
+  const top = L.steps[0];
+  for (let s = 0; s < 5; s++) {
+    const y = top + s * 18;
+    const tread = [rect(0, y + 2.4, W, 5.6), "nonzero"];   // flat top (lit)
+    const riser = [rect(0, y + 8, W, 10), "nonzero"];      // front face (in shade)
+
+    wordFill([[rect(0, y, W, 2.4), "nonzero"]], [0, y, W, y + 2.4], WORDS.all, 2.4, 2.0, C.brown, { weight: 700, spacing: 0 });  // edge
+    wordFill([tread], [0, y + 2.4, W, y + 8], ["LISTEN", "LEARN", "CARE"], 3.2, 3.0, C.lightGray, { spacing: 0.3 });
+    wordFill([tread], [0, y + 2.4, W, y + 8], ["OPEN"], 3.0, 6.0, C.highlight, { weight: 700, spacing: 0.3, down: true });
+    wordFill([riser], [0, y + 8, W, y + 18], WORDS.steps[s], 3.8, 3.6, C.warmGray, { spacing: 0.3 });
+    wordFill([riser], [0, y + 8, W, y + 18], WORDS.dark, 3.2, 3.0, C.brown,
+             { weight: 700, spacing: 0, fade: fadeLinear(0, y + 8, W, 10, [[0, 0.9], [1, 0.15]]) });
+    if (s === 4) wordFill([riser], [0, y + 8, W, y + 18], ["WE BUILD TOGETHER"], 3.8, 7.2, C.red, { weight: 700, spacing: 0.3 });
+  }
+
+  // Door light pooling on the top steps
+  for (const cx of L.doorways)
+    wordFill([[rect(0, top, W, 64), "nonzero"]], [cx - 80, top, cx + 80, top + 64], WORDS.glass, 3.4, 2.8, C.orange,
+             { weight: 600, spacing: 0.3, fade: fadeRadial(cx, top + 4, 80, 60, [[0, 1], [0.5, 0.55], [1, 0]]) });
+  // Soft shade toward the right end
+  wordFill([[rect(0, top, W, 90), "nonzero"]], [0, top, W, L.steps[1]], WORDS.dark, 3.4, 5.0, C.midBrown,
+           { spacing: 0.2, down: true, fade: fadeLinear(0, top, W, 90, [[0, 0], [0.7, 0.05], [1, 0.5]], false) });
+}
+
+/* ---------- Plaza (optional) ---------- */
+function drawPlaza() {
+  const [y0, y1] = L.plaza, clip = [[rect(0, y0, W, y1 - y0), "nonzero"]], box = [0, y0, W, y1];
+  wordFill(clip, box, ["COMMUNITY", "BELONGING", "MANY VOICES", "SHARED FUTURE", "EQUITY", "JUSTICE"], 3.8, 4.4, C.warmGray,
+           { weight: 400, spacing: 1.0, colorFn: () => (rand() < 0.07 ? C.red : rand() < 0.06 ? C.orange : C.warmGray) });
+  wordFill(clip, box, ["WE BUILD TOGETHER"], 3.6, 8.8, C.brown, { spacing: 0.8, down: true, opacity: 0.35 });
+  wordFill(clip, box, WORDS.dark, 3.6, 3.0, C.deep, { weight: 600, spacing: 0, fade: fadeLinear(0, y0, W, 22, [[0, 0.8], [1, 0]]) });
+}
+
+/* ---------- Quotes carved into the stone ---------- */
+function quoteColumn(x, yBottom, yTop, key, { maxSize = 5.6, nameOnSide = false } = {}) {
+  const [quote, who] = QUOTES[key];
+  const room = yBottom - yTop;
+  const main = nameOnSide ? quote : `${quote}  — ${who}`;
+
+  let size = maxSize;                                                     // shrink until it fits
+  while (textWidth(main, size, 600, 0.5) > room && size > 3.0) size -= 0.1;
+  const len = textWidth(main, size, 600, 0.5);
+  const y = yBottom - (room - len) / 2;                                    // centre it in the space
+
+  const column = (t, xx, yy, sz, wt, col, html) => {
+    for (const [dx, c, a] of [[0.55, C.highlight, 0.9], [0, col, 0.95]]) {   // carved: light copy behind
+      const ty = yy + (dx ? 0.5 : 0);
+      body.push(`<text x="${n1(xx + dx)}" y="${n1(ty)}" transform="rotate(-90 ${n1(xx + dx)} ${n1(ty)})" fill="${c}" ` +
+                `opacity="${a}" font-family="Oswald" font-weight="${wt}" font-size="${sz.toFixed(1)}" letter-spacing="0.5">` +
+                `${dx || !html ? esc(t) : html}</text>`);
+    }
+  };
+
+  if (!nameOnSide) {
+    column(main, x, y, size, 600, C.brown, `${esc(quote)}  — <tspan fill="${C.rust}" font-weight="700">${esc(who)}</tspan>`);
+  } else {
+    column(quote, x, y, size, 600, C.brown);
+    const name = "— " + who, nameSize = Math.min(size, 4.4);
+    column(name, x + size * 0.95 + 1.5, y - len + textWidth(name, nameSize, 700, 0.5), nameSize, 700, C.rust);
+  }
+}
+
+function drawQuotes() {
+  const b = L.bays;
+  QUOTE_SPOTS.upper.forEach((k, i) => quoteColumn((b[i] + b[i + 1]) / 2 - 2, 196, 80, k, { maxSize: 6.0, nameOnSide: true }));
+  QUOTE_SPOTS.left.forEach((k, i)  => quoteColumn(60 + 17 * i, 524, 268, k, { maxSize: 6.2 }));
+  QUOTE_SPOTS.right.forEach((k, i) => quoteColumn(582 + 17 * i, 524, 268, k, { maxSize: 6.2 }));
+  quoteColumn(259, 524, 372, QUOTE_SPOTS.piers[0], { maxSize: 5.4 });
+  quoteColumn(419, 524, 372, QUOTE_SPOTS.piers[1], { maxSize: 5.4 });
+}
+
+
+/* #####################################################################
+   4. ASSEMBLE — paint order matters: later parts sit on top
+   ##################################################################### */
+function buildBuilding() {
+  rand = seededRandom(SEED);
+  defs = []; body = []; uid = 0;
+
+  body.push(`<rect x="0" y="0" width="${W}" height="${H}" fill="${C.paper}"/>`);  // paper
+
+  if (SHOW_SKY) drawSky();
+  drawRoof();
+  drawCornice();
+  drawUpperFloor();
+  drawInscriptionBand();
+  drawGroundFloor();
+  drawDoorways();
+  drawSideWindows();
+  drawLanterns();
+  drawSteps();
+  if (SHOW_PLAZA) drawPlaza();
+  drawQuotes();
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" role="img" ` +
+         `aria-label="The Boston Public Library entrance built entirely from words">` +
+         `<defs>${defs.join("")}</defs>${body.join("")}</svg>`;
+}
+
+
+/* 5. RUN — wait for the fonts (so letters measure correctly), then draw */
+(async () => {
+  try {
+    await Promise.all([300, 400, 500, 600, 700, 800].map((w) => document.fonts.load(`${w} 10px Oswald`)));
+    await Promise.all([700, 800].map((w) => document.fonts.load(`${w} 10px Cinzel`)));
+  } catch (e) { /* offline: the browser's own font is used instead */ }
+  widthCache.clear();
+  document.getElementById("art").innerHTML = buildBuilding();
+})();
+</script>
+</body>
+</html>
